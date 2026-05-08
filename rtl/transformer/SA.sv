@@ -8,20 +8,20 @@ module SystolicArray #(
     input logic clk,
     input logic rst_n,
     
-    input logic signed [DATA_WIDTH-1:0] vec_in_a [ARRAY_SIZE-1:0],
-    input logic signed [DATA_WIDTH-1:0] vec_in_b [ARRAY_SIZE-1:0],
+    input logic signed [ARRAY_SIZE-1:0][DATA_WIDTH-1:0] vec_in_a,
+    input logic signed [ARRAY_SIZE-1:0][DATA_WIDTH-1:0] vec_in_b,
     input logic valid_in,
     input logic acc_clear,
     input logic [$clog2(ACC_WIDTH)-1:0] shift_amount,
 
-    output logic [DATA_WIDTH-1:0] out_row_aligned [ARRAY_SIZE-1:0][ARRAY_SIZE-1:0],
-    output logic valid_row_aligned [ARRAY_SIZE-1:0]
+    output logic signed [ARRAY_SIZE-1:0][ARRAY_SIZE-1:0][DATA_WIDTH-1:0] out_row_aligned,
+    output logic [ARRAY_SIZE-1:0] valid_row_aligned,
 );
     // --- INPUT SKEW BUFFERS ---
-    logic signed [DATA_WIDTH-1:0] a_skewed [ARRAY_SIZE-1:0];
-    logic signed [DATA_WIDTH-1:0] b_skewed [ARRAY_SIZE-1:0];
-    logic valid_in_skewed [ARRAY_SIZE-1:0];
-    logic acc_clear_skewed [ARRAY_SIZE-1:0];
+    logic signed [ARRAY_SIZE-1:0][DATA_WIDTH-1:0] a_skewed;
+    logic signed [ARRAY_SIZE-1:0][DATA_WIDTH-1:0] b_skewed;
+    logic [ARRAY_SIZE-1:0] valid_in_skewed;
+    logic [ARRAY_SIZE-1:0] acc_clear_skewed;
 
     genvar i, j;
     generate
@@ -30,29 +30,28 @@ module SystolicArray #(
                 assign a_skewed[i] = vec_in_a[i];
                 assign b_skewed[i] = vec_in_b[i];
                 assign valid_in_skewed[i] = valid_in;
-                assign acc_clear_skewed[i] = acc_clear; 
+                assign acc_clear_skewed[i] = acc_clear;
             end
             else begin
                 // Tạo shift register độ sâu i
-                logic signed [DATA_WIDTH-1:0] a_delay [i:1];
-                logic signed [DATA_WIDTH-1:0] b_delay [i:1];
-                logic v_delay [i:1];
-                logic c_delay [i:1];
-                
+                logic signed [i:1][DATA_WIDTH-1:0] a_delay;
+                logic signed [i:1][DATA_WIDTH-1:0] b_delay;
+                logic [i:1] v_delay;
+                logic [i:1] c_delay;
+
                 always_ff @(posedge clk) begin
                     if(!rst_n) begin
-                        for(int k = 1; k <= i; k++) begin
-                            a_delay[k] <= '0;
-                            b_delay[k] <= '0;
-                            v_delay[k] <= 1'b0;
-                            c_delay[k] <= 1'b0;
-                        end
+                        a_delay <= '0;
+                        b_delay <= '0;
+                        v_delay <= '0;
+                        c_delay <= '0;
                     end
                     else begin
                         a_delay[1] <= vec_in_a[i];
                         b_delay[1] <= vec_in_b[i];
                         v_delay[1] <= valid_in;
                         c_delay[1] <= acc_clear;
+
                         for(int k = 2; k <= i; k++) begin
                             a_delay[k] <= a_delay[k-1];
                             b_delay[k] <= b_delay[k-1];
@@ -70,14 +69,14 @@ module SystolicArray #(
         end
     endgenerate
 
-    // --- LƯỚI PE ---
-    logic signed [DATA_WIDTH-1:0] pe_out_matrix [ARRAY_SIZE-1:0][ARRAY_SIZE-1:0];
-    logic pe_valid_matrix [ARRAY_SIZE-1:0][ARRAY_SIZE-1:0];
+    // --- PE Matrix ---
+    logic signed [ARRAY_SIZE-1:0][ARRAY_SIZE-1:0][DATA_WIDTH-1:0] pe_out_matrix;
+    logic [ARRAY_SIZE-1:0][ARRAY_SIZE-1:0] pe_valid_matrix;
 
-    logic signed [DATA_WIDTH-1:0] a_wire [ARRAY_SIZE-1:0][ARRAY_SIZE:0];
-    logic signed [DATA_WIDTH-1:0] b_wire [ARRAY_SIZE:0][ARRAY_SIZE-1:0];
-    logic v_wire [ARRAY_SIZE-1:0][ARRAY_SIZE:0];
-    logic c_wire [ARRAY_SIZE-1:0][ARRAY_SIZE:0];
+    logic signed [ARRAY_SIZE-1:0][ARRAY_SIZE:0][DATA_WIDTH-1:0] a_wire;
+    logic signed [ARRAY_SIZE:0][ARRAY_SIZE-1:0][DATA_WIDTH-1:0] b_wire;
+    logic [ARRAY_SIZE-1:0][ARRAY_SIZE:0] v_wire;
+    logic [ARRAY_SIZE-1:0][ARRAY_SIZE:0] c_wire;
 
     generate
         for(i = 0; i < ARRAY_SIZE; i++) begin
@@ -117,37 +116,23 @@ module SystolicArray #(
 
                 if(DELAY_CYCLES == 0) begin
                     assign out_row_aligned[i][j] = pe_out_matrix[i][j];
-                    if(j == ARRAY_SIZE-1)
-                        assign valid_row_aligned[i] = pe_valid_matrix[i][j];
+                    assign valid_row_aligned[i] = pe_valid_matrix[i][j];
                 end
                 else begin
-                    logic signed [DATA_WIDTH-1:0] out_delay [DELAY_CYCLES:1];
-                    logic v_out_delay [DELAY_CYCLES:1];
+                    logic signed [DELAY_CYCLES:1][DATA_WIDTH-1:0] out_delay;
 
                     always_ff @(posedge clk) begin
-                        if(!rst_n) begin
-                            for(int k = 1; k <= DELAY_CYCLES; k++) begin
-                                out_delay[k] <= '0;
-                                v_out_delay[k] <= 1'b0;
-                            end
-                        end
-                        else begin
-                            out_delay[1] <= pe_out_matrix[i][j];
-                            v_out_delay[1] <= pe_valid_matrix[i][j];
-                            
-                            for(int k = 2; k <= DELAY_CYCLES; k++) begin
-                                out_delay[k] <= out_delay[k-1];
-                                v_out_delay[k] <= v_out_delay[k-1];
-                            end
+                        out_delay[1] <= pe_out_matrix[i][j];
+                        
+                        for(int k = 2; k <= DELAY_CYCLES; k++) begin
+                            out_delay[k] <= out_delay[k-1];
                         end
                     end
 
                     assign out_row_aligned[i][j] = out_delay[DELAY_CYCLES];
-                    if(j == 0)
-                        assign valid_row_aligned[i] = v_out_delay[DELAY_CYCLES];
                 end
             end
         end
-    endgenerate    
+    endgenerate
     
 endmodule

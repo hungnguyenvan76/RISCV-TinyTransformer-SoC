@@ -19,7 +19,7 @@ module Controller #(
 
     input logic stage_done, // Nhận tín hiệu từ Datapath mỗi khi done 1 stage
 
-    // �?i�?u khiển Datapath
+    // Điều khiển Datapath
     output logic start_matmul,
     output logic transpose_mode,
     output logic [$clog2(ACC_WIDTH)-1:0] shift_amount,

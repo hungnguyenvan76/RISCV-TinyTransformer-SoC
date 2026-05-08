@@ -4,16 +4,16 @@ module PE #(
     parameter DATA_WIDTH = 8,
     parameter ACC_WIDTH = 32
 ) (
-    input  logic clk,
-    input  logic rst_n,
-    
-    input  logic valid_in,
-    input  logic acc_clear,
-    input  logic [$clog2(ACC_WIDTH)-1:0] shift_amount,
+    input logic clk,
+    input logic rst_n,
+
+    input logic valid_in,
+    input logic acc_clear,
+    input logic [$clog2(ACC_WIDTH)-1:0] shift_amount,
     
     // --- DỮ LIỆU NHẬN VÀO (Từ hàng xóm phía Trên và Bên Trái) ---
-    input  logic signed [DATA_WIDTH-1:0] in_a, // Dữ liệu X chảy từ Trái sang
-    input  logic signed [DATA_WIDTH-1:0] in_b, // Truyền số W chảy từ Trên xuống
+    input logic signed [DATA_WIDTH-1:0] in_a, // Dữ liệu X chảy từ trái sang
+    input logic signed [DATA_WIDTH-1:0] in_b, // Truyền số W chảy từ trên xuống
     
     // --- DỮ LIỆU TRUYỀN ĐI (Cho hàng xóm phía Dưới và Bên Phải) ---
     output logic signed [DATA_WIDTH-1:0] out_a, // Truyền X sang Phải
@@ -44,13 +44,11 @@ module PE #(
 
     always_ff @(posedge clk) begin
         if (!rst_n) begin
-            out_a <= '0;
-            out_b <= '0;
             out_valid_ctrl <= 1'b0;
             out_clear_ctrl <= 1'b0;
         end
         else begin
-            // Mỗi khi lock là PE copy dữ liệu đầu vào 
+            // Mỗi khi có clock là PE copy dữ liệu đầu vào 
             // đẩy ra cửa đầu ra để chuẩn bị cho hàng xóm ở chu kỳ sau.
             out_a <= in_a;
             out_b <= in_b;
