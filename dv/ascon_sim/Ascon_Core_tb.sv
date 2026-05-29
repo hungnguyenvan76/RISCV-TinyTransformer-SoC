@@ -22,7 +22,7 @@ module Ascon_Core_tb;
     logic [127:0] nonce;
     logic [1:0]   mode; 
     logic         skip_asso;
-    logic [127:0] in_tag = 128'hb79bb3b7b59a7d21536cc1e027aaa4a9;
+    logic [127:0] in_tag;
     logic [127:0] out_tag;
     logic         success_tag;
     logic         done;
@@ -51,7 +51,10 @@ module Ascon_Core_tb;
 
     initial begin
         // Setup
-        reset_n = 0; start = 0; mode = 2'b01; // Decrypt
+        reset_n = 0; start = 0; 
+        // mode = 2'b01; // Decrypt
+        // in_tag = 128'h91c1f44428c97914921fb3bd6a1cd8a6;
+        mode = 2'b00; // Encrypt
         key   = 128'h08090a0b0c0d0e0f_0001020304050607; 
         nonce = 128'h08090a0b0c0d0e0f_0001020304050607;
         skip_asso = 1'b0;
@@ -64,17 +67,17 @@ module Ascon_Core_tb;
 
         
         // Send Associated Data (AD) 
-        send_data(64'h3832314e4f435341, 0); // "ASCON128"
-        send_data(64'h0000000000000001, 1); // Padding
+        // send_data(64'h3832314e4f435341, 0); // "ASCON128"
+        send_data(64'h3832314e4f435341, 1); 
         
         @(negedge clk);
         mess_valid = 0; mess_last = 0; 
 
         // Send Plaintext 
         // send_data(64'h6373616f6c6c6568, 0); // "helloasc"
-        // send_data(64'h0000000000000001, 1); // Padding
-        send_data(64'h766d747b615aafb2, 1); 
-        send_data(64'hd670720afc483196, 1); // Padding
+        send_data(64'h6373616f6c6c6568, 1); 
+        // send_data(64'h65e95c77b9aee02c, 1); 
+        // send_data(64'h88df5d8e9fbab762, 1); 
         @(negedge clk);
         mess_valid = 0; mess_last = 0; 
 

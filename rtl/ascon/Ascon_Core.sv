@@ -7,6 +7,8 @@
 // Description: Connecting FSM, Datapath and Permutation
 //////////////////////////////////////////////////////////////////////////////////
 
+//thiếu padding cho message cuối cùng khi độ dài không phải bội của RATE_CHUNKS*8 bytes
+
 module Ascon_Core import ascon_pkg::*; (
     input  logic         clk,
     input  logic         reset_n,
@@ -41,7 +43,9 @@ module Ascon_Core import ascon_pkg::*; (
     logic cycle_cnt; 
     logic cycle_done;
     logic [2:0] state;
-
+    logic pad_phase;
+    logic is_full_block;
+    
     assign cycle_done = (cycle_cnt == RC_MAX);
 
     Ascon_FSM u_fsm (
@@ -60,7 +64,9 @@ module Ascon_Core import ascon_pkg::*; (
         .cipher_push(cipher_push),
         .cipher_ready(cipher_ready),
         .done       (done), 
-        .state_out  (state)
+        .state_out  (state),
+        .pad_phase  (pad_phase),
+        .is_full_block(is_full_block)
     );
 
     Permutation u_perm (
@@ -102,16 +108,23 @@ module Ascon_Core import ascon_pkg::*; (
 
                 ASSO_DATA: begin
                     if (mess_valid && mess_pull) begin
-                        if (cycle_cnt == 0) S[0] <= S[0] ^ message;
-                        else                S[1] <= S[1] ^ message;
+                        if (cycle_cnt == 0) begin
+                            S[0] <= S[0] ^ message;
+                            if (mess_last) S[1] <= PAD(S[1]);
+                        end
+                        else 
+                            S[1] <= S[1] ^ message;
                         
-                        if (cycle_done) cycle_cnt <= 0;
-                        else            cycle_cnt <= cycle_cnt + 1;
+                        if (cycle_done || mess_last ) 
+                            cycle_cnt <= 0;
+                        else 
+                            cycle_cnt <= cycle_cnt + 1;
                     end
       
                     if (perm_done) begin
                         S <= perm_out;
-                        S[4] <= perm_out[4] ^ 64'h8000000000000000; // Domain Separation
+                        if ((is_full_block && pad_phase) || (!is_full_block)) 
+                            S[4] <= perm_out[4] ^ 64'h8000000000000000; // Domain Separation
                     end
                 end
 
@@ -120,17 +133,27 @@ module Ascon_Core import ascon_pkg::*; (
                     if (mess_valid && mess_pull) begin
                         if (mode == 2'b01) begin 
                             // MODE: DECRYPT 
-                            if (cycle_cnt == 0) S[0] <= message;
-                            else                S[1] <= message;
+                            if (cycle_cnt == 0) begin
+                                S[0] <= message;
+                                if (mess_last) S[1] <= PAD(S[1]);
+                            end
+                            else 
+                                S[1] <= message;
                         end 
                         else begin 
                             // MODE: ENCRYPT 
-                            if (cycle_cnt == 0) S[0] <= S[0] ^ message;
-                            else                S[1] <= S[1] ^ message;
+                            if (cycle_cnt == 0) begin
+                                S[0] <= S[0] ^ message;
+                                if (mess_last) S[1] <= PAD(S[1]);
+                            end
+                            else  
+                                S[1] <= S[1] ^ message;
                         end
                         
-                        if (cycle_done) cycle_cnt <= 0;
-                        else            cycle_cnt <= cycle_cnt + 1;
+                        if (cycle_done || mess_last) 
+                            cycle_cnt <= 0;
+                        else            
+                            cycle_cnt <= cycle_cnt + 1;
                     end
       
                     if (perm_done) begin
@@ -152,25 +175,44 @@ module Ascon_Core import ascon_pkg::*; (
     always_comb begin
         perm_in = S; 
 
-        if (state == ASSO_DATA && mess_valid && mess_pull) begin
-            if (cycle_cnt == 0) perm_in[0] = S[0] ^ message;
-            else                perm_in[1] = S[1] ^ message;
+        if (state == ASSO_DATA) begin
+            if (mess_valid && mess_pull) begin
+                if (cycle_cnt == 0) begin
+                    perm_in[0] = S[0] ^ message;
+                    if (mess_last) perm_in[1] = PAD(S[1]);
+                end
+                else                
+                    perm_in[1] = S[1] ^ message;
+            end
+            else if (pad_phase) begin 
+                // run permutation for block padding
+                if (is_full_block) perm_in[0] = PAD(S[0]);
+            end
         end
 
         else if (state == MESSAGE && mess_valid && mess_pull) begin
             if (mode == 2'b01) begin 
                 // MODE: DECRYPT 
-                if (cycle_cnt == 0) perm_in[0] = message;
-                else                perm_in[1] = message;
+                if (cycle_cnt == 0) begin
+                    perm_in[0] = message;
+                    if (mess_last) perm_in[1] = PAD(S[1]);
+                end
+                else                
+                    perm_in[1] = message;
             end 
             else begin 
                 // MODE: ENCRYPT 
-                if (cycle_cnt == 0) perm_in[0] = S[0] ^ message;
-                else                perm_in[1] = S[1] ^ message;
+                if (cycle_cnt == 0) begin
+                    perm_in[0] = S[0] ^ message;
+                    if (mess_last) perm_in[1] = PAD(S[1]);
+                end
+                else                
+                    perm_in[1] = S[1] ^ message;
             end
             
         end
         else if (state == TAG && !perm_done) begin
+            if (is_full_block) perm_in[0] = PAD(S[0]);
             perm_in[2] = S[2] ^ key[127:64];
             perm_in[3] = S[3] ^ key[63:0];
         end

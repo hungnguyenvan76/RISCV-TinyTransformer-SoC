@@ -26,13 +26,38 @@ module Ascon_FSM import ascon_pkg::*; (
     output logic cipher_push,
     input  logic cipher_ready,
     output logic done,
-    output logic [2:0] state_out
+    output logic [2:0] state_out,
+    output logic pad_phase,
+    output logic is_full_block
 );
     state_t state, next;
     assign state_out = state;
 
     logic saved_mess_last;
     logic is_permuting;
+    logic reset_save;
+
+
+    always_ff @(posedge clk or negedge reset_n) begin
+        if (!reset_n) begin
+            is_full_block <= 1'b0;
+        end 
+        else if (mess_valid && mess_pull && mess_last) begin
+            is_full_block <= cycle_done; 
+        end
+    end
+
+    always_ff @(posedge clk or negedge reset_n) begin
+        if (!reset_n) begin
+            pad_phase <= 1'b0;
+        end
+        else if (state != ASSO_DATA) begin
+            pad_phase <= 1'b0; // Reset when not in ASSO_DATA state
+        end
+        else if (perm_done && saved_mess_last && !pad_phase) begin
+            pad_phase <= 1'b1;
+        end
+    end
 
     always_ff @(posedge clk or negedge reset_n) begin
         if (!reset_n) begin
@@ -43,10 +68,9 @@ module Ascon_FSM import ascon_pkg::*; (
             if (mess_valid && mess_pull) begin
                 saved_mess_last <= mess_last;
             end
-            if (state == IDLE) begin
-                saved_mess_last <= 1'b0;
+            else if (state == ASSO_DATA && reset_save) begin
+                saved_mess_last <= 1'b0; 
             end
-
             if (perm_start) is_permuting <= 1'b1;
             else if (perm_done) is_permuting <= 1'b0;
         end
@@ -82,15 +106,22 @@ module Ascon_FSM import ascon_pkg::*; (
                 if (is_permuting) begin
                     mess_pull = 0; 
                 end 
+                else if (pad_phase) begin 
+                    // run permutation for block padding
+                    perm_start = 1; 
+                end
                 else begin
                     mess_pull = mess_valid; 
-                    if (mess_valid && cycle_done) begin
+                    if (mess_valid && (cycle_done || mess_last)) begin
                         perm_start = 1; 
                     end
                 end
                 
                 if (perm_done && saved_mess_last) begin
-                    next = MESSAGE;
+                    if (pad_phase || !is_full_block) begin
+                        next = MESSAGE;
+                        reset_save = 1; // Reset saved_mess_last after padding
+                    end
                 end
             end
 
@@ -100,26 +131,35 @@ module Ascon_FSM import ascon_pkg::*; (
                     cipher_push = 0;
                 end 
                 else begin
-
                     // Handshake 
                     cipher_push = mess_valid; 
                     mess_pull   = cipher_ready;
-
                     if (mess_valid && cipher_ready) begin
-                        if (cycle_done) begin
-                            if (mess_last || saved_mess_last) begin
-                                next = TAG;
-                            end
-                            else begin
+                        if (mess_last || saved_mess_last) begin
+                            if (cycle_done) begin
+                                // Full block (128-bit) 
                                 perm_start = 1;
                             end
+                            else begin
+                                // block (64-bit) 
+                                next = TAG;
+                            end
+                        end
+                        else if (cycle_done) begin
+                            perm_start = 1;
                         end
                     end
+                end
+
+                if (saved_mess_last && perm_done) begin
+                    next = TAG;
                 end
             end
 
             TAG: begin
-                perm_start = 1;
+                if (!is_permuting) begin
+                    perm_start = 1;
+                end
                 perm_rounds = ASCON_A;
                 if (perm_done) begin
                     done = 1;
