@@ -45,7 +45,7 @@ module Ascon_Core import ascon_pkg::*; (
     logic [2:0] state;
     logic pad_phase;
     logic is_full_block;
-    
+    logic do_domain_sep;
     assign cycle_done = (cycle_cnt == RC_MAX);
 
     Ascon_FSM u_fsm (
@@ -66,7 +66,8 @@ module Ascon_Core import ascon_pkg::*; (
         .done       (done), 
         .state_out  (state),
         .pad_phase  (pad_phase),
-        .is_full_block(is_full_block)
+        .is_full_block(is_full_block),
+        .do_domain_sep(do_domain_sep)
     );
 
     Permutation u_perm (
@@ -123,7 +124,7 @@ module Ascon_Core import ascon_pkg::*; (
       
                     if (perm_done) begin
                         S <= perm_out;
-                        if ((is_full_block && pad_phase) || (!is_full_block)) 
+                        if (do_domain_sep) 
                             S[4] <= perm_out[4] ^ 64'h8000000000000000; // Domain Separation
                     end
                 end

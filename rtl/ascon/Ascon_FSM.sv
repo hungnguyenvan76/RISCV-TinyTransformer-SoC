@@ -7,6 +7,8 @@
 // Description: 
 //////////////////////////////////////////////////////////////////////////////////
 
+`timescale 1ns / 1ps
+
 module Ascon_FSM import ascon_pkg::*; (
     input  logic clk,
     input  logic reset_n,
@@ -28,15 +30,14 @@ module Ascon_FSM import ascon_pkg::*; (
     output logic done,
     output logic [2:0] state_out,
     output logic pad_phase,
-    output logic is_full_block
+    output logic is_full_block,
+    output logic do_domain_sep
 );
     state_t state, next;
     assign state_out = state;
 
     logic saved_mess_last;
     logic is_permuting;
-    logic reset_save;
-
 
     always_ff @(posedge clk or negedge reset_n) begin
         if (!reset_n) begin
@@ -65,12 +66,13 @@ module Ascon_FSM import ascon_pkg::*; (
             is_permuting    <= 1'b0;
         end 
         else begin
-            if (mess_valid && mess_pull) begin
+            if (state != next) begin
+                saved_mess_last <= 1'b0;
+            end
+            else if (mess_valid && mess_pull) begin
                 saved_mess_last <= mess_last;
             end
-            else if (state == ASSO_DATA && reset_save) begin
-                saved_mess_last <= 1'b0; 
-            end
+            
             if (perm_start) is_permuting <= 1'b1;
             else if (perm_done) is_permuting <= 1'b0;
         end
@@ -89,15 +91,18 @@ module Ascon_FSM import ascon_pkg::*; (
         mess_pull = 0;
         cipher_push = 0;
         done = 0;
+        do_domain_sep = 0;
 
         case (state)
             IDLE: if (start) next = INIT;
 
             INIT: begin
-                perm_start = 1;
+                if (!is_permuting) begin
+                    perm_start = 1;
+                end
+                
                 perm_rounds = ASCON_A; 
                 if (perm_done) begin
-                    perm_start = 0;
                     next = skip_asso ? MESSAGE : ASSO_DATA;
                 end
             end
@@ -119,8 +124,8 @@ module Ascon_FSM import ascon_pkg::*; (
                 
                 if (perm_done && saved_mess_last) begin
                     if (pad_phase || !is_full_block) begin
+                        do_domain_sep = 1;
                         next = MESSAGE;
-                        reset_save = 1; // Reset saved_mess_last after padding
                     end
                 end
             end
@@ -141,7 +146,7 @@ module Ascon_FSM import ascon_pkg::*; (
                                 perm_start = 1;
                             end
                             else begin
-                                // block (64-bit) 
+                                // Partial block (64-bit) 
                                 next = TAG;
                             end
                         end
