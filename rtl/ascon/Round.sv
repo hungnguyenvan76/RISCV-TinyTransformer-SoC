@@ -12,52 +12,46 @@ module Round
 (
     input  logic [0:4][63:0] x_in,
     output logic [0:4][63:0] x_out,
-    input  logic [7:0] round_const
+    input  logic [7:0]       round_const
 );
-    
-    logic [0:4][63:0] s0, s1, s2, s3;
+    // Khai báo các thanh ghi trạng thái trung gian cục bộ (64-bit)
+    logic [63:0] x0, x2, x4;
+    logic [63:0] t0, t1, t2, t3, t4;
     
     always_comb begin
-        s0 = '0;
-        s1 = '0;
-        s2 = '0;
-        s3 = '0;
-        x_out = '0;
-        
-        // add round constant
-        s0[0] = x_in[0];
-        s0[1] = x_in[1];
-        s0[2] = x_in[2] ^ {56'b0, round_const};
-        s0[3] = x_in[3];
-        s0[4] = x_in[4];
+        // 1. ADD ROUND CONSTANT
+        x0 = x_in[0];
+        // x1 = x_in[1];
+        x2 = x_in[2] ^ {56'b0, round_const};
+        // x3 = x_in[3];
+        x4 = x_in[4];
 
-        // substitution pre
-        s1[0] = s0[0] ^ s0[4];
-        s1[1] = s0[1];
-        s1[2] = s0[2] ^ s0[1];
-        s1[3] = s0[3];
-        s1[4] = s0[4] ^ s0[3];
-
-        // keccak s-box
-        s2[0] = s1[0] ^ (~s1[1] & s1[2]);
-        s2[1] = s1[1] ^ (~s1[2] & s1[3]);
-        s2[2] = s1[2] ^ (~s1[3] & s1[4]);
-        s2[3] = s1[3] ^ (~s1[4] & s1[0]);
-        s2[4] = s1[4] ^ (~s1[0] & s1[1]);
-    
-        // post s-box
-        s3[1] = s2[1] ^ s2[0];
-        s3[0] = s2[0] ^ s2[4];
-        s3[2] = ~s2[2];
-        s3[3] = s2[3] ^ s2[2];
-        s3[4] = s2[4];
+        // 2. SUBSTITUTION LAYER
+        // Bước Pre S-box
+        x0 = x0 ^ x4;
+        x2 = x2 ^ x_in[1];
+        x4 = x4 ^ x_in[3];
         
-        // linear diffusion
-        x_out[0] = s3[0] ^ ROR(s3[0], 19) ^ ROR(s3[0], 28);
-        x_out[1] = s3[1] ^ ROR(s3[1], 61) ^ ROR(s3[1], 39);
-        x_out[2] = s3[2] ^ ROR(s3[2],  1) ^ ROR(s3[2],  6);
-        x_out[3] = s3[3] ^ ROR(s3[3], 10) ^ ROR(s3[3], 17);
-        x_out[4] = s3[4] ^ ROR(s3[4],  7) ^ ROR(s3[4], 41); 
+        // Bước Keccak S-box (Lớp phi tuyến)
+        // Gán vào biến t để giữ nguyên giá trị x không bị ghi đè chéo
+        t0 = x0 ^ (~x_in[1] & x2);
+        t1 = x_in[1] ^ (~x2 & x_in[3]);
+        t2 = x2 ^ (~x_in[3] & x4);
+        t3 = x_in[3] ^ (~x4 & x0);
+        t4 = x4 ^ (~x0 & x_in[1]);
+        
+        // Bước Post S-box
+        t1 = t1 ^ t0;
+        t0 = t0 ^ t4;
+        t3 = t3 ^ t2;
+        t2 = ~t2;
+
+        // 3. LINEAR DIFFUSION LAYER (Xuất thẳng ra cổng ngõ ra)
+        x_out[0] = t0 ^ ROR(t0, 19) ^ ROR(t0, 28);
+        x_out[1] = t1 ^ ROR(t1, 61) ^ ROR(t1, 39);
+        x_out[2] = t2 ^ ROR(t2,  1) ^ ROR(t2,  6);
+        x_out[3] = t3 ^ ROR(t3, 10) ^ ROR(t3, 17);
+        x_out[4] = t4 ^ ROR(t4,  7) ^ ROR(t4, 41); 
     end
 
 endmodule
